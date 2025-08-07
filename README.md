@@ -1,4 +1,7 @@
 # NAHS Caseload Counts - API Documentation
+<img alt="Google Apps Script" src="https://img.shields.io/badge/Google Apps Script-4285F4?style=flat&amp;logo=google&amp;logoColor=white">
+<img alt="Education" src="https://img.shields.io/badge/Education-Technology-green">
+<img alt="NISD" src="https://img.shields.io/badge/Northside ISD-Academic Tech-blue">
 
 ## Overview
 
