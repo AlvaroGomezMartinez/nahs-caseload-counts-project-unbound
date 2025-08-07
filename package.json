@@ -1,0 +1,31 @@
+{
+  "name": "nahs-caseload-counts",
+  "version": "1.0.0",
+  "description": "NAHS Caseload Counts - Google Apps Script Application",
+  "main": "src/backend/Code.js",
+  "scripts": {
+    "docs": "jsdoc -c jsdoc.json",
+    "docs:serve": "jsdoc -c jsdoc.json && npx http-server docs -p 8080",
+    "docs:clean": "rm -rf docs",
+    "docs:rebuild": "npm run docs:clean && npm run docs"
+  },
+  "keywords": [
+    "google-apps-script",
+    "education",
+    "caseload-management",
+    "data-visualization"
+  ],
+  "author": "Alvaro Gomez <alvaro.gomez@nisd.net>",
+  "license": "MIT",
+  "devDependencies": {
+    "jsdoc": "^4.0.2",
+    "http-server": "^14.1.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "Local development repository"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

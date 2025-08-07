@@ -1,0 +1,516 @@
+/**
+ * @fileoverview Utility functions and helper classes for NAHS Caseload Counts application.
+ * 
+ * Provides a comprehensive collection of reusable utilities including error handling,
+ * validation, array manipulation, string processing, date formatting, and performance
+ * monitoring. These utilities support clean, maintainable code across the application.
+ * 
+ * @namespace Utils
+ * @requires CONFIG - Application configuration constants
+ * @requires AppLogger - Application logging service
+ * @requires Utilities - Google Apps Script utilities service
+ * 
+ * @author Alvaro Gomez, Academic Technology Coach
+ * @version 1.0.0
+ * @since 08-06-2025
+ */
+
+/**
+ * Error handling utilities for standardized error management.
+ * Provides consistent error formatting and logging across the application.
+ * 
+ * @namespace ErrorUtils
+ * @type {Object}
+ */
+const ErrorUtils = {
+  /**
+   * Create a standardized error response object.
+   * Generates consistent error responses with unique tracking IDs for debugging.
+   * 
+   * @param {string} message - Human-readable error message
+   * @param {Error|null} [originalError=null] - Original error object if available
+   * @param {string} [context=''] - Context where the error occurred
+   * @returns {Object} Standardized error response object
+   * @returns {boolean} return.success - Always false for error responses
+   * @returns {string} return.errorId - Unique error tracking identifier
+   * @returns {string} return.message - Error message
+   * @returns {string} return.context - Error context
+   * @returns {string} return.timestamp - ISO timestamp of error occurrence
+   * @returns {string|null} return.originalError - Original error message if provided
+   * 
+   * @example
+   * try {
+   *   // Some operation that might fail
+   * } catch (error) {
+   *   return ErrorUtils.createErrorResponse('Database operation failed', error, 'UserService.loadData');
+   * }
+   */
+  createErrorResponse(message, originalError = null, context = '') {
+    const errorId = Utilities.getUuid();
+    const error = {
+      success: false,
+      errorId: errorId,
+      message: message,
+      context: context,
+      timestamp: new Date().toISOString(),
+      originalError: originalError ? originalError.message : null
+    };
+    
+    logError(`Error ${errorId}: ${message}`, {
+      originalError: originalError ? originalError.message : null,
+      context: context
+    }, 'ErrorUtils.createErrorResponse');
+    
+    return error;
+  },
+
+  /**
+   * Create a standardized success response object.
+   * Generates consistent success responses with optional data payload.
+   * 
+   * @param {*} data - Data to include in the response (any type)
+   * @param {string} [message='Operation completed successfully'] - Success message
+   * @returns {Object} Standardized success response object
+   * @returns {boolean} return.success - Always true for success responses
+   * @returns {string} return.message - Success message
+   * @returns {*} return.data - Response data payload
+   * @returns {string} return.timestamp - ISO timestamp of response creation
+   * 
+   * @example
+   * const userData = { name: 'John', role: 'admin' };
+   * return ErrorUtils.createSuccessResponse(userData, 'User data loaded successfully');
+   */
+  createSuccessResponse(data, message = 'Operation completed successfully') {
+    return {
+      success: true,
+      message: message,
+      data: data,
+      timestamp: new Date().toISOString()
+    };
+  },
+
+  /**
+   * Handle and log exceptions with consistent error formatting.
+   * Provides centralized exception handling with logging and standardized responses.
+   * 
+   * @param {Error} error - Error object to handle
+   * @param {string} context - Context description where error occurred
+   * @param {string} [fallbackMessage='An unexpected error occurred'] - Default message if error message is empty
+   * @returns {Object} Standardized error response object
+   * 
+   * @example
+   * try {
+   *   // risky operation
+   * } catch (error) {
+   *   return ErrorUtils.handleException(error, 'DataService.processData', 'Failed to process spreadsheet data');
+   * }
+   */
+  handleException(error, context, fallbackMessage = 'An unexpected error occurred') {
+    const message = error.message || fallbackMessage;
+    return this.createErrorResponse(message, error, context);
+  }
+};
+
+/**
+ * Data validation utilities for input validation and data integrity checks.
+ * Provides common validation functions for various data types and formats.
+ * 
+ * @namespace ValidationUtils
+ * @type {Object}
+ */
+const ValidationUtils = {
+  /**
+   * Check if a value is null, undefined, or empty string.
+   * Useful for validating required fields and data presence.
+   * 
+   * @param {*} value - Value to check for emptiness
+   * @returns {boolean} True if value is null, undefined, or empty string
+   * 
+   * @example
+   * if (ValidationUtils.isEmpty(userInput)) {
+   *   console.log('Input is required');
+   * }
+   */
+  isEmpty(value) {
+    return value === null || value === undefined || value === '';
+  },
+
+  /**
+   * Check if an array is valid and has elements
+   * @param {*} arr - Array to check
+   * @returns {boolean} True if array is valid and not empty
+   */
+  isValidArray(arr) {
+    return Array.isArray(arr) && arr.length > 0;
+  },
+
+  /**
+   * Validate email format
+   * @param {string} email - Email to validate
+   * @returns {boolean} True if email format is valid
+   */
+  isValidEmail(email) {
+    if (typeof email !== 'string' || this.isEmpty(email)) {
+      return false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  },
+
+  /**
+   * Validate that a string contains only allowed characters
+   * @param {string} str - String to validate
+   * @param {RegExp} allowedPattern - Regex pattern for allowed characters
+   * @returns {boolean} True if string matches pattern
+   */
+  isValidString(str, allowedPattern = /^[a-zA-Z0-9\s\-_@.]+$/) {
+    if (typeof str !== 'string' || this.isEmpty(str)) {
+      return false;
+    }
+    return allowedPattern.test(str);
+  },
+
+  /**
+   * Sanitize string input by removing potentially harmful characters
+   * @param {string} input - Input string to sanitize
+   * @returns {string} Sanitized string
+   */
+  sanitizeString(input) {
+    if (typeof input !== 'string') {
+      return '';
+    }
+    return input.replace(/[<>]/g, '').trim();
+  }
+};
+
+/**
+ * Array and data manipulation utilities
+ */
+const ArrayUtils = {
+  /**
+   * Safely get an element from an array
+   * @param {Array} arr - Array to access
+   * @param {number} index - Index to access
+   * @param {*} defaultValue - Default value if index is invalid
+   * @returns {*} Array element or default value
+   */
+  safeGet(arr, index, defaultValue = null) {
+    if (!Array.isArray(arr) || index < 0 || index >= arr.length) {
+      return defaultValue;
+    }
+    return arr[index];
+  },
+
+  /**
+   * Remove duplicates from an array
+   * @param {Array} arr - Array to deduplicate
+   * @returns {Array} Array with duplicates removed
+   */
+  removeDuplicates(arr) {
+    if (!Array.isArray(arr)) {
+      return [];
+    }
+    return [...new Set(arr)];
+  },
+
+  /**
+   * Chunk an array into smaller arrays of specified size
+   * @param {Array} arr - Array to chunk
+   * @param {number} size - Chunk size
+   * @returns {Array} Array of chunks
+   */
+  chunk(arr, size) {
+    if (!Array.isArray(arr) || size <= 0) {
+      return [];
+    }
+    const chunks = [];
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+  },
+
+  /**
+   * Find the intersection of two arrays
+   * @param {Array} arr1 - First array
+   * @param {Array} arr2 - Second array
+   * @returns {Array} Elements common to both arrays
+   */
+  intersection(arr1, arr2) {
+    if (!Array.isArray(arr1) || !Array.isArray(arr2)) {
+      return [];
+    }
+    return arr1.filter(item => arr2.includes(item));
+  }
+};
+
+/**
+ * String manipulation utilities
+ */
+const StringUtils = {
+  /**
+   * Convert string to title case
+   * @param {string} str - String to convert
+   * @returns {string} Title case string
+   */
+  toTitleCase(str) {
+    if (typeof str !== 'string') {
+      return '';
+    }
+    return str.replace(/\w\S*/g, (txt) => 
+      txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+    );
+  },
+
+  /**
+   * Truncate string to specified length with ellipsis
+   * @param {string} str - String to truncate
+   * @param {number} maxLength - Maximum length
+   * @returns {string} Truncated string
+   */
+  truncate(str, maxLength = 50) {
+    if (typeof str !== 'string') {
+      return '';
+    }
+    if (str.length <= maxLength) {
+      return str;
+    }
+    return str.substring(0, maxLength - 3) + '...';
+  },
+
+  /**
+   * Generate a random string of specified length
+   * @param {number} length - Length of random string
+   * @param {string} charset - Character set to use
+   * @returns {string} Random string
+   */
+  generateRandomString(length = 8, charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789') {
+    let result = '';
+    for (let i = 0; i < length; i++) {
+      result += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    return result;
+  }
+};
+
+/**
+ * Date and time utilities
+ */
+const DateUtils = {
+  /**
+   * Format date to consistent string format
+   * @param {Date} date - Date to format
+   * @param {string} format - Format string (default from config)
+   * @returns {string} Formatted date string
+   */
+  formatDate(date, format = CONFIG.SPREADSHEET.DATE_FORMAT) {
+    try {
+      if (!date) return '';
+      
+      const dateObj = date instanceof Date ? date : new Date(date);
+      if (isNaN(dateObj.getTime())) {
+        return date.toString(); // Return original if can't parse
+      }
+      
+      return Utilities.formatDate(dateObj, Session.getScriptTimeZone(), format);
+    } catch (error) {
+      logWarn('Date formatting failed', { error: error.message, date }, 'DateUtils.formatDate');
+      return date ? date.toString() : '';
+    }
+  },
+
+  /**
+   * Check if a date is valid
+   * @param {*} date - Date to validate
+   * @returns {boolean} True if valid date
+   */
+  isValidDate(date) {
+    try {
+      if (date === null || date === undefined) {
+        return false;
+      }
+      const dateObj = date instanceof Date ? date : new Date(date);
+      return !isNaN(dateObj.getTime());
+    } catch (error) {
+      return false;
+    }
+  },
+
+  /**
+   * Get current timestamp in ISO format
+   * @returns {string} ISO timestamp
+   */
+  getCurrentTimestamp() {
+    return new Date().toISOString();
+  },
+
+  /**
+   * Calculate difference between two dates in days
+   * @param {Date} date1 - First date
+   * @param {Date} date2 - Second date
+   * @returns {number} Difference in days
+   */
+  daysDifference(date1, date2) {
+    try {
+      const d1 = date1 instanceof Date ? date1 : new Date(date1);
+      const d2 = date2 instanceof Date ? date2 : new Date(date2);
+      
+      if (!this.isValidDate(d1) || !this.isValidDate(d2)) {
+        return 0;
+      }
+      
+      const diffTime = Math.abs(d2.getTime() - d1.getTime());
+      return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    } catch (error) {
+      logWarn('Failed to calculate date difference', { error: error.message }, 'DateUtils.daysDifference');
+      return 0;
+    }
+  }
+};
+
+/**
+ * Performance monitoring utilities
+ */
+const PerformanceUtils = {
+  /**
+   * Create a performance timer
+   * @param {string} name - Timer name
+   * @returns {Object} Timer object with stop method
+   */
+  createTimer(name) {
+    const startTime = new Date();
+    return {
+      name: name,
+      startTime: startTime,
+      stop: function() {
+        const endTime = new Date();
+        const duration = endTime.getTime() - startTime.getTime();
+        logPerformance(name, startTime, endTime);
+        return duration;
+      }
+    };
+  },
+
+  /**
+   * Measure execution time of a function
+   * @param {Function} func - Function to measure
+   * @param {string} name - Name for logging
+   * @returns {*} Function result
+   */
+  measureFunction(func, name) {
+    const timer = this.createTimer(name);
+    try {
+      const result = func();
+      timer.stop();
+      return result;
+    } catch (error) {
+      timer.stop();
+      throw error;
+    }
+  }
+};
+
+/**
+ * Cache utilities
+ */
+const CacheUtils = {
+  /**
+   * Safely get value from cache
+   * @param {string} key - Cache key
+   * @param {*} defaultValue - Default value if cache miss
+   * @returns {*} Cached value or default
+   */
+  safeGet(key, defaultValue = null) {
+    try {
+      const cache = CacheService.getScriptCache();
+      const cached = cache.get(key);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+      return defaultValue;
+    } catch (error) {
+      logWarn('Cache get failed', { error: error.message, key }, 'CacheUtils.safeGet');
+      return defaultValue;
+    }
+  },
+
+  /**
+   * Safely set value in cache
+   * @param {string} key - Cache key
+   * @param {*} value - Value to cache
+   * @param {number} expirationInSeconds - Expiration time
+   * @returns {boolean} True if successful
+   */
+  safeSet(key, value, expirationInSeconds = 300) {
+    try {
+      const cache = CacheService.getScriptCache();
+      cache.put(key, JSON.stringify(value), expirationInSeconds);
+      return true;
+    } catch (error) {
+      logWarn('Cache set failed', { error: error.message, key }, 'CacheUtils.safeSet');
+      return false;
+    }
+  },
+
+  /**
+   * Clear cache key safely
+   * @param {string} key - Cache key to clear
+   * @returns {boolean} True if successful
+   */
+  safeClear(key) {
+    try {
+      const cache = CacheService.getScriptCache();
+      cache.remove(key);
+      return true;
+    } catch (error) {
+      logWarn('Cache clear failed', { error: error.message, key }, 'CacheUtils.safeClear');
+      return false;
+    }
+  }
+};
+
+/**
+ * Development and debugging utilities
+ */
+const DevUtils = {
+  /**
+   * Generate test data for development
+   * @param {number} rowCount - Number of rows to generate
+   * @returns {Array} Test data array
+   */
+  generateTestData(rowCount = 10) {
+    const headers = ['Student Name', 'HOME CAMPUS', 'Grade', 'ENTRY DATE', 'Status'];
+    const campuses = CONFIG.CAMPUSES.slice(0, 5); // Use first 5 campuses
+    const data = [headers];
+    
+    for (let i = 1; i <= rowCount; i++) {
+      data.push([
+        `Test Student ${i}`,
+        campuses[i % campuses.length],
+        `${9 + (i % 4)}`, // Grades 9-12
+        new Date(2024, 8, i), // September 2024
+        'Active'
+      ]);
+    }
+    
+    return data;
+  },
+
+  /**
+   * Log system information for debugging
+   */
+  logSystemInfo() {
+    try {
+      const info = {
+        timezone: Session.getScriptTimeZone(),
+        locale: Session.getActiveUserLocale(),
+        timestamp: new Date().toISOString(),
+        sessionId: AppLogger.sessionId
+      };
+      
+      logInfo('System information', info, 'DevUtils.logSystemInfo');
+    } catch (error) {
+      logError('Failed to get system info', { error: error.message }, 'DevUtils.logSystemInfo');
+    }
+  }
+};

@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: DataService.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: DataService.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/**
+ * @fileoverview Data processing and spreadsheet management service for NAHS Caseload Counts application.
+ * 
+ * Provides comprehensive data operations including spreadsheet connection management,
+ * data retrieval, filtering, transformation, and caching. Handles integration with
+ * Google Sheets API and implements performance optimizations through intelligent caching.
+ * 
+ * @namespace DataService
+ * @requires CONFIG - Application configuration constants
+ * @requires AppLogger - Application logging service
+ * @requires CacheService - Google Apps Script caching service
+ * @requires SpreadsheetApp - Google Apps Script spreadsheet service
+ * @requires userService - User authentication and permission service
+ * 
+ * @author Alvaro Gomez, Academic Technology Coach
+ * @version 1.0.0
+ * @since 08-06-2025
+ */
+
+/**
+ * Data service class for handling spreadsheet operations and data processing.
+ * Centralizes all data-related operations including retrieval, filtering, caching,
+ * and transformation for the NAHS Caseload application.
+ * 
+ * @class DataService
+ * @classdesc Manages spreadsheet connections and data operations with caching optimization
+ */
+class DataService {
+  /**
+   * Create a DataService instance.
+   * Initializes caching and spreadsheet connection properties.
+   * 
+   * @constructor
+   */
+  constructor() {
+    this.cache = CacheService.getScriptCache();
+    this.spreadsheet = null;
+    this.currentCaseloadSheet = null;
+  }
+
+  /**
+   * Initialize the spreadsheet connection and sheet references.
+   * Establishes connection to the specified spreadsheet by ID and locates the caseload data sheet.
+   * 
+   * @returns {void}
+   * @throws {Error} If the required spreadsheet or sheet cannot be found
+   * 
+   * @example
+   * const dataService = new DataService();
+   * dataService.initializeSpreadsheet();
+   * // Spreadsheet and sheet connections are now established
+   */
+  initializeSpreadsheet() {
+    try {
+      if (!this.spreadsheet) {
+        // For unbound scripts, use the specific spreadsheet ID from config
+        this.spreadsheet = SpreadsheetApp.openById(CONFIG.SPREADSHEET.SPREADSHEET_ID);
+        logDebug('Spreadsheet initialized by ID', { 
+          spreadsheetId: CONFIG.SPREADSHEET.SPREADSHEET_ID 
+        }, 'DataService.initializeSpreadsheet');
+      }
+      
+      if (!this.currentCaseloadSheet) {
+        this.currentCaseloadSheet = this.spreadsheet.getSheetByName(CONFIG.SPREADSHEET.SHEET_NAME);
+        if (!this.currentCaseloadSheet) {
+          throw new Error(`Sheet "${CONFIG.SPREADSHEET.SHEET_NAME}" not found in spreadsheet ${CONFIG.SPREADSHEET.SPREADSHEET_ID}`);
+        }
+        logDebug('Caseload sheet initialized', { 
+          sheetName: CONFIG.SPREADSHEET.SHEET_NAME 
+        }, 'DataService.initializeSpreadsheet');
+      }
+    } catch (error) {
+      logError('Failed to initialize spreadsheet', { 
+        error: error.message,
+        spreadsheetId: CONFIG.SPREADSHEET.SPREADSHEET_ID
+      }, 'DataService.initializeSpreadsheet');
+      throw createError(ERROR_MESSAGES.DATA_LOAD_ERROR, error, 'DataService.initializeSpreadsheet');
+    }
+  }
+
+  /**
+   * Get all raw data from the current caseload sheet.
+   * Retrieves the complete dataset including headers and all rows from the spreadsheet.
+   * 
+   * @returns {Array&lt;Array&lt;*>>} 2D array containing all sheet data (headers + rows)
+   * @throws {Error} If spreadsheet cannot be accessed or data retrieval fails
+   * 
+   * @example
+   * const dataService = new DataService();
+   * const rawData = dataService.getRawData();
+   * console.log(`Retrieved ${rawData.length} rows of data`);
+   */
+  getRawData() {
+    try {
+      const startTime = new Date();
+      this.initializeSpreadsheet();
+      
+      const data = this.currentCaseloadSheet.getDataRange().getValues();
+      
+      if (!data || data.length === 0) {
+        throw new Error('No data found in the spreadsheet');
+      }
+
+      logInfo('Raw data retrieved from spreadsheet', {
+        rowCount: data.length,
+        columnCount: data[0] ? data[0].length : 0
+      }, 'DataService.getRawData');
+
+      logPerformance('getRawData', startTime);
+      return data;
+    } catch (error) {
+      logError('Failed to get raw data', { error: error.message }, 'DataService.getRawData');
+      throw createError(ERROR_MESSAGES.DATA_LOAD_ERROR, error, 'DataService.getRawData');
+    }
+  }
+
+  /**
+   * Extract headers from the raw spreadsheet data.
+   * Gets the first row of data which contains the column headers.
+   * 
+   * @param {Array&lt;Array&lt;*>>} data - Raw spreadsheet data with headers in first row
+   * @returns {Array&lt;string>} Array of column header names
+   * @throws {Error} If data is empty or headers cannot be extracted
+   * 
+   * @example
+   * const dataService = new DataService();
+   * const rawData = dataService.getRawData();
+   * const headers = dataService.getHeaders(rawData);
+   * console.log(`Found columns: ${headers.join(', ')}`);
+   */
+  getHeaders(data) {
+    try {
+      if (!data || data.length === 0) {
+        throw new Error('No data provided to extract headers');
+      }
+      
+      const headers = data[0];
+      logDebug('Headers extracted', { headerCount: headers.length }, 'DataService.getHeaders');
+      return headers;
+    } catch (error) {
+      logError('Failed to get headers', { error: error.message }, 'DataService.getHeaders');
+      throw createError(ERROR_MESSAGES.INVALID_DATA, error, 'DataService.getHeaders');
+    }
+  }
+
+  /**
+   * Find the index of a specific column by name.
+   * Searches through headers to locate the position of a named column.
+   * 
+   * @param {Array&lt;string>} headers - Header row containing column names
+   * @param {string} columnName - Name of the column to locate
+   * @returns {number} Zero-based column index, or -1 if column not found
+   * 
+   * @example
+   * const dataService = new DataService();
+   * const headers = ['Name', 'HOME CAMPUS', 'Date'];
+   * const campusIndex = dataService.getColumnIndex(headers, 'HOME CAMPUS');
+   * console.log(`Campus column is at index: ${campusIndex}`);
+   */
+  getColumnIndex(headers, columnName) {
+    try {
+      const index = headers.indexOf(columnName);
+      logDebug('Column index lookup', { 
+        columnName: columnName, 
+        index: index 
+      }, 'DataService.getColumnIndex');
+      return index;
+    } catch (error) {
+      logError('Error finding column index', { error: error.message, columnName }, 'DataService.getColumnIndex');
+      return -1;
+    }
+  }
+
+  /**
+   * Filter data based on user's accessible campuses.
+   * Returns only rows where the campus column matches user's permitted campuses.
+   * 
+   * @param {Array&lt;Array&lt;*>>} data - Raw spreadsheet data including headers
+   * @param {Array&lt;string>} userCampuses - List of campus codes user can access
+   * @returns {Array&lt;Array&lt;*>>} Filtered data containing only accessible campus records
+   * @throws {Error} If campus column cannot be found or data is invalid
+   * 
+   * @example
+   * const dataService = new DataService();
+   * const rawData = dataService.getRawData();
+   * const userCampuses = ['NAHS', 'Brandeis'];
+   * const filtered = dataService.filterDataByCampuses(rawData, userCampuses);
+   */
+  filterDataByCampuses(data, userCampuses) {
+    try {
+      const startTime = new Date();
+      
+      if (!data || data.length === 0) {
+        throw new Error('No data provided for filtering');
+      }
+
+      if (!userCampuses || userCampuses.length === 0) {
+        logInfo('No campuses provided - returning empty result', null, 'DataService.filterDataByCampuses');
+        return [data[0]]; // Return only headers
+      }
+
+      const headers = this.getHeaders(data);
+      const campusIndex = this.getColumnIndex(headers, CONFIG.SPREADSHEET.CAMPUS_COLUMN);
+
+      if (campusIndex === -1) {
+        throw new Error(ERROR_MESSAGES.NO_CAMPUS_COLUMN);
+      }
+
+      // Check if user has full access
+      if (userCampuses.length >= CONFIG.SECURITY.FULL_ACCESS_CAMPUS_COUNT) {
+        logInfo('User has full access - returning all data', {
+          totalRows: data.length - 1
+        }, 'DataService.filterDataByCampuses');
+        logPerformance('filterDataByCampuses (full access)', startTime);
+        return data;
+      }
+
+      // Filter data for specific campuses
+      const filteredRows = data.filter((row, index) => {
+        if (index === 0) return true; // Keep headers
+        return userCampuses.includes(row[campusIndex]);
+      });
+
+      logInfo('Data filtered by campuses', {
+        originalRows: data.length - 1,
+        filteredRows: filteredRows.length - 1,
+        campuses: userCampuses
+      }, 'DataService.filterDataByCampuses');
+
+      logPerformance('filterDataByCampuses (filtered)', startTime);
+      return filteredRows;
+    } catch (error) {
+      logError('Failed to filter data by campuses', { 
+        error: error.message, 
+        campusCount: userCampuses ? userCampuses.length : 0 
+      }, 'DataService.filterDataByCampuses');
+      throw createError(ERROR_MESSAGES.DATA_LOAD_ERROR, error, 'DataService.filterDataByCampuses');
+    }
+  }
+
+  /**
+   * Remove specified columns from the dataset.
+   * Creates a new dataset with specified columns removed, preserving original data structure.
+   * 
+   * @param {Array&lt;Array&lt;*>>} data - 2D array of data including headers
+   * @param {Array&lt;number>} columnIndexes - Array of zero-based column indices to remove
+   * @returns {Array&lt;Array&lt;*>>} New dataset with specified columns removed
+   * 
+   * @example
+   * const dataService = new DataService();
+   * const data = [['A', 'B', 'C'], [1, 2, 3], [4, 5, 6]];
+   * const result = dataService.removeColumns(data, [1]); // Remove column B
+   * // Result: [['A', 'C'], [1, 3], [4, 6]]
+   */
+  removeColumns(data, columnIndexes) {
+    try {
+      const startTime = new Date();
+      
+      if (!data || data.length === 0) {
+        return data;
+      }
+
+      if (!columnIndexes || columnIndexes.length === 0) {
+        return data;
+      }
+
+      // Sort column indexes in descending order to avoid index shifting issues
+      const sortedColumns = [...columnIndexes].sort((a, b) => b - a);
+      
+      const result = data.map(row => {
+        const newRow = [...row];
+        sortedColumns.forEach(colIndex => {
+          if (colIndex >= 0 &amp;&amp; colIndex &lt; newRow.length) {
+            newRow.splice(colIndex, 1);
+          }
+        });
+        return newRow;
+      });
+
+      logDebug('Columns removed from data', {
+        originalColumns: data[0] ? data[0].length : 0,
+        removedColumns: columnIndexes.length,
+        finalColumns: result[0] ? result[0].length : 0
+      }, 'DataService.removeColumns');
+
+      logPerformance('removeColumns', startTime);
+      return result;
+    } catch (error) {
+      logError('Failed to remove columns', { 
+        error: error.message, 
+        columnIndexes 
+      }, 'DataService.removeColumns');
+      return data; // Return original data if removal fails
+    }
+  }
+
+  /**
+   * Format dates in specified columns according to application standards.
+   * Converts date values to consistent MM/dd/yy format for display.
+   * 
+   * @param {Array&lt;Array&lt;*>>} data - 2D array of data including headers
+   * @param {Array&lt;number>} dateColumnIndexes - Indices of columns containing date values
+   * @returns {Array&lt;Array&lt;*>>} Data with formatted date values
+   * 
+   * @example
+   * const dataService = new DataService();
+   * const data = [['Name', 'Date'], ['John', new Date('2024-01-15')]];
+   * const formatted = dataService.formatDates(data, [1]);
+   * // Result: [['Name', 'Date'], ['John', '01/15/24']]
+   */
+  formatDates(data, dateColumnIndexes) {
+    try {
+      const startTime = new Date();
+      
+      if (!data || data.length === 0) {
+        return data;
+      }
+
+      if (!dateColumnIndexes || dateColumnIndexes.length === 0) {
+        return data;
+      }
+
+      const result = data.map((row, rowIndex) => {
+        // Skip headers row
+        if (rowIndex === 0) return row;
+
+        const newRow = [...row];
+        dateColumnIndexes.forEach(index => {
+          if (index >= 0 &amp;&amp; index &lt; newRow.length) {
+            newRow[index] = this.formatDateValue(newRow[index]);
+          }
+        });
+
+        return newRow;
+      });
+
+      logDebug('Dates formatted in data', {
+        dateColumns: dateColumnIndexes.length,
+        processedRows: result.length - 1
+      }, 'DataService.formatDates');
+
+      logPerformance('formatDates', startTime);
+      return result;
+    } catch (error) {
+      logError('Failed to format dates', { 
+        error: error.message, 
+        dateColumnIndexes 
+      }, 'DataService.formatDates');
+      return data; // Return original data if formatting fails
+    }
+  }
+
+  /**
+   * Format a single date value safely
+   * @param {*} dateValue - Value to format as date
+   * @returns {string} Formatted date string or original value
+   */
+  formatDateValue(dateValue) {
+    try {
+      if (!dateValue) return '';
+      
+      if (dateValue instanceof Date) {
+        if (isNaN(dateValue.getTime())) return dateValue; // Invalid date
+        return Utilities.formatDate(dateValue, Session.getScriptTimeZone(), CONFIG.SPREADSHEET.DATE_FORMAT);
+      }
+      
+      if (typeof dateValue === 'string' &amp;&amp; dateValue.includes('T')) {
+        const parsedDate = new Date(dateValue);
+        if (!isNaN(parsedDate.getTime())) {
+          return Utilities.formatDate(parsedDate, Session.getScriptTimeZone(), CONFIG.SPREADSHEET.DATE_FORMAT);
+        }
+      }
+      
+      // Return original value if not a recognizable date
+      return dateValue;
+    } catch (error) {
+      logWarn('Date formatting failed for value', { 
+        value: dateValue, 
+        error: error.message 
+      }, 'DataService.formatDateValue');
+      return dateValue;
+    }
+  }
+
+  /**
+   * Get date column indexes from headers
+   * @param {Array} headers - Header row
+   * @returns {Array} Array of date column indexes
+   */
+  getDateColumnIndexes(headers) {
+    try {
+      const dateColumns = CONFIG.SPREADSHEET.DATE_COLUMNS;
+      const indexes = dateColumns
+        .map(col => this.getColumnIndex(headers, col))
+        .filter(idx => idx !== -1);
+      
+      logDebug('Date column indexes identified', {
+        dateColumns: dateColumns,
+        foundIndexes: indexes
+      }, 'DataService.getDateColumnIndexes');
+      
+      return indexes;
+    } catch (error) {
+      logError('Failed to get date column indexes', { error: error.message }, 'DataService.getDateColumnIndexes');
+      return [];
+    }
+  }
+
+  /**
+   * Process complete data for a user (main data processing pipeline)
+   * @param {string} userEmail - User's email address
+   * @returns {Array} Processed and filtered data
+   */
+  getProcessedDataForUser(userEmail) {
+    try {
+      const startTime = new Date();
+      logInfo('Starting data processing for user', { userEmail }, 'DataService.getProcessedDataForUser');
+
+      // Get user's accessible campuses
+      const userCampuses = userService.getUserCampuses(userEmail);
+      if (userCampuses.length === 0) {
+        logInfo('User has no campus access', { userEmail }, 'DataService.getProcessedDataForUser');
+        return [];
+      }
+
+      // Get raw data
+      const rawData = this.getRawData();
+      const headers = this.getHeaders(rawData);
+
+      // Filter by campuses
+      const filteredData = this.filterDataByCampuses(rawData, userCampuses);
+
+      // Remove specified columns
+      const dataWithoutColumns = this.removeColumns(filteredData, CONFIG.SPREADSHEET.COLUMNS_TO_REMOVE);
+
+      // Format dates
+      const dateColumnIndexes = this.getDateColumnIndexes(headers);
+      // Adjust date column indexes after column removal
+      const adjustedDateIndexes = this.adjustColumnIndexesAfterRemoval(dateColumnIndexes, CONFIG.SPREADSHEET.COLUMNS_TO_REMOVE);
+      const finalData = this.formatDates(dataWithoutColumns, adjustedDateIndexes);
+
+      logInfo('Data processing completed', {
+        userEmail: userEmail,
+        finalRowCount: finalData.length - 1,
+        finalColumnCount: finalData[0] ? finalData[0].length : 0
+      }, 'DataService.getProcessedDataForUser');
+
+      logPerformance('getProcessedDataForUser (complete)', startTime);
+      return finalData;
+    } catch (error) {
+      logError('Failed to process data for user', { 
+        error: error.message, 
+        userEmail 
+      }, 'DataService.getProcessedDataForUser');
+      throw createError(ERROR_MESSAGES.DATA_LOAD_ERROR, error, 'DataService.getProcessedDataForUser');
+    }
+  }
+
+  /**
+   * Adjust column indexes after columns have been removed
+   * @param {Array} originalIndexes - Original column indexes
+   * @param {Array} removedIndexes - Indexes of removed columns
+   * @returns {Array} Adjusted column indexes
+   */
+  adjustColumnIndexesAfterRemoval(originalIndexes, removedIndexes) {
+    try {
+      const sortedRemovedIndexes = [...removedIndexes].sort((a, b) => a - b);
+      
+      return originalIndexes.map(originalIndex => {
+        let adjustedIndex = originalIndex;
+        sortedRemovedIndexes.forEach(removedIndex => {
+          if (removedIndex &lt; originalIndex) {
+            adjustedIndex--;
+          }
+        });
+        return adjustedIndex;
+      }).filter(index => index >= 0); // Remove any invalid indexes
+    } catch (error) {
+      logError('Failed to adjust column indexes', { 
+        error: error.message, 
+        originalIndexes, 
+        removedIndexes 
+      }, 'DataService.adjustColumnIndexesAfterRemoval');
+      return originalIndexes;
+    }
+  }
+
+  /**
+   * Get cached data for user or fetch fresh data
+   * @param {string} userEmail - User's email address
+   * @returns {Array} Processed data
+   */
+  getCachedDataForUser(userEmail) {
+    try {
+      const cacheKey = `${CONFIG.CACHE.PREFIX}data_${userEmail}`;
+      const cached = this.cache.get(cacheKey);
+      
+      if (cached) {
+        logDebug('Data retrieved from cache for user', { userEmail }, 'DataService.getCachedDataForUser');
+        return JSON.parse(cached);
+      }
+
+      // Get fresh data
+      const data = this.getProcessedDataForUser(userEmail);
+      
+      // Cache the data
+      try {
+        this.cache.put(cacheKey, JSON.stringify(data), CONFIG.CACHE.DATA_CACHE_DURATION);
+        logDebug('Data cached for user', { userEmail }, 'DataService.getCachedDataForUser');
+      } catch (cacheError) {
+        logWarn('Failed to cache data for user', { 
+          error: cacheError.message, 
+          userEmail 
+        }, 'DataService.getCachedDataForUser');
+      }
+
+      return data;
+    } catch (error) {
+      logError('Failed to get cached data for user', { 
+        error: error.message, 
+        userEmail 
+      }, 'DataService.getCachedDataForUser');
+      throw error;
+    }
+  }
+
+  /**
+   * Clear data cache for a specific user
+   * @param {string} userEmail - User's email address
+   */
+  clearDataCache(userEmail) {
+    try {
+      const cacheKey = `${CONFIG.CACHE.PREFIX}data_${userEmail}`;
+      this.cache.remove(cacheKey);
+      logInfo('Data cache cleared for user', { userEmail }, 'DataService.clearDataCache');
+    } catch (error) {
+      logWarn('Failed to clear data cache for user', { 
+        error: error.message, 
+        userEmail 
+      }, 'DataService.clearDataCache');
+    }
+  }
+
+  /**
+   * Get data statistics for monitoring and debugging
+   * @returns {Object} Data statistics
+   */
+  getDataStatistics() {
+    try {
+      const rawData = this.getRawData();
+      const headers = this.getHeaders(rawData);
+      
+      return {
+        totalRows: rawData.length - 1, // Exclude header
+        totalColumns: headers.length,
+        headers: headers,
+        lastUpdated: new Date().toISOString(),
+        sheetName: CONFIG.SPREADSHEET.SHEET_NAME
+      };
+    } catch (error) {
+      logError('Failed to get data statistics', { error: error.message }, 'DataService.getDataStatistics');
+      return {
+        error: error.message,
+        lastChecked: new Date().toISOString()
+      };
+    }
+  }
+}
+
+// Global instance
+const dataService = new DataService();
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Namespaces</h3><ul><li><a href="COLUMNS.html">COLUMNS</a></li><li><a href="CONFIG.html">CONFIG</a></li><li><a href="CONFIG.APP.html">APP</a></li><li><a href="CONFIG.CACHE.html">CACHE</a></li><li><a href="CONFIG.CONTACTS.html">CONTACTS</a></li><li><a href="CONFIG.PAGINATION.html">PAGINATION</a></li><li><a href="CONFIG.SECURITY.html">SECURITY</a></li><li><a href="CONFIG.SPREADSHEET.html">SPREADSHEET</a></li><li><a href="DataService.html">DataService</a></li><li><a href="ERROR_MESSAGES.html">ERROR_MESSAGES</a></li><li><a href="ErrorUtils.html">ErrorUtils</a></li><li><a href="MainAPI.html">MainAPI</a></li><li><a href="SUCCESS_MESSAGES.html">SUCCESS_MESSAGES</a></li><li><a href="UserService.html">UserService</a></li><li><a href="Utils.html">Utils</a></li><li><a href="ValidationUtils.html">ValidationUtils</a></li></ul><h3>Classes</h3><ul><li><a href="ApplicationLogger.html">ApplicationLogger</a></li></ul><h3>Global</h3><ul><li><a href="global.html#ArrayUtils">ArrayUtils</a></li><li><a href="global.html#CacheUtils">CacheUtils</a></li><li><a href="global.html#DateUtils">DateUtils</a></li><li><a href="global.html#DevUtils">DevUtils</a></li><li><a href="global.html#LogLevel">LogLevel</a></li><li><a href="global.html#LogLevelNames">LogLevelNames</a></li><li><a href="global.html#PerformanceUtils">PerformanceUtils</a></li><li><a href="global.html#StringUtils">StringUtils</a></li><li><a href="global.html#analyzeDataCompatibility">analyzeDataCompatibility</a></li><li><a href="global.html#clearUserCache">clearUserCache</a></li><li><a href="global.html#debugDataAccess">debugDataAccess</a></li><li><a href="global.html#doGet">doGet</a></li><li><a href="global.html#emergencyRollback">emergencyRollback</a></li><li><a href="global.html#filterCaseloadData">filterCaseloadData</a></li><li><a href="global.html#generateErrorId">generateErrorId</a></li><li><a href="global.html#generatePreMigrationChecklist">generatePreMigrationChecklist</a></li><li><a href="global.html#getAppConfig">getAppConfig</a></li><li><a href="global.html#getSpreadsheetConfig">getSpreadsheetConfig</a></li><li><a href="global.html#getSystemInfo">getSystemInfo</a></li><li><a href="global.html#getUserInfo">getUserInfo</a></li><li><a href="global.html#healthCheck">healthCheck</a></li><li><a href="global.html#logDebug">logDebug</a></li><li><a href="global.html#migrateToNewSchoolYear">migrateToNewSchoolYear</a></li><li><a href="global.html#testSpreadsheetConnection">testSpreadsheetConnection</a></li><li><a href="global.html#updateSpreadsheetConfig">updateSpreadsheetConfig</a></li><li><a href="global.html#userService">userService</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Wed Aug 06 2025 20:59:27 GMT-0500 (Central Daylight Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

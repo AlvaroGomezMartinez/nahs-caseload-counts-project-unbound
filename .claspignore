@@ -1,0 +1,76 @@
+# .claspignore
+# This file tells Google Apps Script CLI (clasp) which files to ignore when pushing to GAS
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Markdown documentation files
+*.md
+**/*.md
+
+# Node.js files (if using npm for development)
+node_modules/
+package.json
+package-lock.json
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+
+# Development and testing files
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Documentation that shouldn't be deployed
+README.md
+CHANGELOG.md
+LICENSE
+CONTRIBUTING.md
+JSDOC_GUIDE.md
+docs/
+documentation/
+
+# JSDoc and development files
+jsdoc.json
+package.json
+package-lock.json
+generate-docs.sh

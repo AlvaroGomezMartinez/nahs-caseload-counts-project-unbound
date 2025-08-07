@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NAHS Caseload/Counts</title>
+  
+  <!-- Inline CSS for Google Apps Script compatibility -->
+  <style>
+    /* Root variables for consistent theming */
+    :root {
+      --primary-color: #2c3e50;
+      --secondary-color: #3498db;
+      --success-color: #27ae60;
+      --warning-color: #f39c12;
+      --error-color: #e74c3c;
+      --background-color: #ecf0f1;
+      --card-background: #ffffff;
+      --text-color: #2c3e50;
+      --border-color: #bdc3c7;
+      --shadow: 0 2px 4px rgba(0,0,0,0.1);
+      --border-radius: 4px;
+      --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* Base styles */
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: var(--font-family);
+      margin: 0;
+      padding: 20px;
+      background-color: var(--background-color);
+      color: var(--text-color);
+      line-height: 1.6;
+    }
+
+    /* Header styles */
+    .header {
+      background: var(--card-background);
+      padding: 20px;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .header h1 {
+      margin: 0 0 10px 0;
+      color: var(--primary-color);
+      font-size: 1.8em;
+    }
+
+    .header .subtitle {
+      color: #7f8c8d;
+      font-size: 0.9em;
+      margin: 0;
+    }
+
+    /* Control panel styles */
+    .controls {
+      background: var(--card-background);
+      padding: 15px;
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .controls button {
+      background: var(--secondary-color);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: background-color 0.2s;
+    }
+
+    .controls button:hover {
+      background: #2980b9;
+    }
+
+    .controls button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+
+    .search-box {
+      flex: 1;
+      min-width: 200px;
+      padding: 8px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: var(--border-radius);
+      font-size: 0.9em;
+    }
+
+    .search-box:focus {
+      outline: none;
+      border-color: var(--secondary-color);
+      box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+    }
+
+    /* Loading spinner styles */
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 200px;
+      background: var(--card-background);
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+    }
+
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid var(--secondary-color);
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin-bottom: 15px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      color: #7f8c8d;
+      font-size: 0.9em;
+      margin: 0;
+    }
+
+    /* Table container */
+    .table-container {
+      background: var(--card-background);
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    /* Table styles */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9em;
+    }
+
+    .data-table th {
+      background: var(--primary-color);
+      color: white;
+      padding: 12px 8px;
+      text-align: left;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .data-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #ecf0f1;
+      vertical-align: top;
+    }
+
+    .data-table tbody tr:hover {
+      background-color: #f8f9fa;
+    }
+
+    .data-table tbody tr:nth-child(even) {
+      background-color: #fdfdfd;
+    }
+
+    .data-table tbody tr:nth-child(even):hover {
+      background-color: #f5f6fa;
+    }
+
+    /* Status and message styles */
+    .message {
+      padding: 15px;
+      border-radius: var(--border-radius);
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .message.error {
+      background: #fadbd8;
+      border: 1px solid var(--error-color);
+      color: #c0392b;
+    }
+
+    .message.warning {
+      background: #fef5e7;
+      border: 1px solid var(--warning-color);
+      color: #d68910;
+    }
+
+    .message.info {
+      background: #d6eaf8;
+      border: 1px solid var(--secondary-color);
+      color: #2471a3;
+    }
+
+    .message.success {
+      background: #d5f4e6;
+      border: 1px solid var(--success-color);
+      color: #196f3d;
+    }
+
+    /* Footer styles */
+    .footer {
+      margin-top: 30px;
+      padding: 20px;
+      background: var(--card-background);
+      border-radius: var(--border-radius);
+      box-shadow: var(--shadow);
+      text-align: center;
+      font-size: 0.8em;
+      color: #7f8c8d;
+    }
+
+    .footer .legend {
+      margin-bottom: 10px;
+    }
+
+    .footer .contact-info {
+      border-top: 1px solid #ecf0f1;
+      padding-top: 15px;
+      margin-top: 15px;
+    }
+
+    /* Pagination styles */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      padding: 20px;
+      background: var(--card-background);
+      border-top: 1px solid #ecf0f1;
+    }
+
+    .pagination button {
+      background: var(--secondary-color);
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      font-size: 0.8em;
+    }
+
+    .pagination button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+
+    .pagination .page-info {
+      color: #7f8c8d;
+      font-size: 0.9em;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+      
+      .header h1 {
+        font-size: 1.4em;
+      }
+      
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .controls button {
+        width: 100%;
+        margin-bottom: 5px;
+      }
+      
+      .data-table {
+        font-size: 0.8em;
+      }
+      
+      .data-table th,
+      .data-table td {
+        padding: 6px 4px;
+      }
+      
+      /* Make table horizontally scrollable on small screens */
+      .table-container {
+        overflow-x: auto;
+      }
+      
+      .data-table {
+        min-width: 600px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .data-table {
+        font-size: 0.7em;
+      }
+      
+      .data-table th,
+      .data-table td {
+        padding: 4px 2px;
+      }
+    }
+
+    /* Print styles */
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      
+      .controls,
+      .footer,
+      .pagination {
+        display: none;
+      }
+      
+      .table-container {
+        box-shadow: none;
+        border: 1px solid #000;
+      }
+      
+      .data-table th {
+        background: #f0f0f0 !important;
+        color: #000 !important;
+      }
+      
+      .data-table {
+        font-size: 0.8em;
+      }
+    }
+
+    /* Animation for smooth transitions */
+    .fade-in {
+      animation: fadeIn 0.3s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Header -->
+  <header class="header">
+    <h1>NAHS CASELOAD/COUNTS</h1>
+    <p class="subtitle">Northside ISD • Northside Alternative High School</p>
+  </header>
+
+  <!-- Control Panel -->
+  <div class="controls">
+    <input 
+      type="text" 
+      id="search-box" 
+      class="search-box" 
+      placeholder="Search students, campuses, or other data..."
+      aria-label="Search data"
+    >
+    <button id="refresh-btn" aria-label="Refresh data">Refresh</button>
+    <button id="export-btn" aria-label="Export data to CSV">Export CSV</button>
+    <button id="print-btn" aria-label="Print table">Print</button>
+    <span id="data-info" style="margin-left: auto; font-size: 0.9em; color: #7f8c8d;"></span>
+  </div>
+
+  <!-- Loading Indicator -->
+  <div id="loading" class="loading-container">
+    <div class="spinner" aria-label="Loading"></div>
+    <p class="loading-text">Loading caseload data, please wait...</p>
+  </div>
+
+  <!-- Data Table Container -->
+  <div id="data-table" class="table-container" style="display: none;" role="main">
+    <!-- Table will be dynamically generated here -->
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="legend">
+      <strong>NAHS Caseload/Counts</strong>
+    </div>
+    <div class="contact-info">
+      <p><strong>NAHS Campus Coordinator: </strong> 
+        <a href="mailto:linda.rodriguez@nisd.net">Linda Rodriguez</a><br>
+        <strong>Office:</strong> 977080
+      </p>
+      <p><strong>Technical support: </strong> 
+        <a href="mailto:alvaro.gomez@nisd.net">Alvaro Gomez, Academic Technology Coach</a><br>
+        <strong>Office:</strong> 979408
+      </p>
+    </div>
+  </footer>
+
+  <!-- JavaScript -->
+  <script>
+    // Application state
+    const AppState = {
+      data: [],
+      filteredData: [],
+      currentPage: 1,
+      pageSize: 50,
+      searchTerm: '',
+      isLoading: false,
+      error: null
+    };
+
+    // Application configuration
+    const AppConfig = {
+      searchColumns: [0, 1, 2], // Columns to search in (adjust based on your data structure)
+      pageSize: 50,
+      maxPageSize: 100,
+      debounceDelay: 300
+    };
+
+    /**
+     * Initialize the application
+     */
+    function initializeApp() {
+      console.log('Initializing NAHS Caseload application...');
+      
+      // Set up event listeners
+      setupEventListeners();
+      
+      // Load initial data
+      loadFilteredData();
+    }
+
+    /**
+     * Set up event listeners for UI interactions
+     */
+    function setupEventListeners() {
+      // Search functionality
+      const searchBox = document.getElementById('search-box');
+      if (searchBox) {
+        searchBox.addEventListener('input', debounce(handleSearch, AppConfig.debounceDelay));
+      }
+      
+      // Refresh button
+      const refreshBtn = document.getElementById('refresh-btn');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', refreshData);
+      }
+      
+      // Export button
+      const exportBtn = document.getElementById('export-btn');
+      if (exportBtn) {
+        exportBtn.addEventListener('click', exportData);
+      }
+      
+      // Print button
+      const printBtn = document.getElementById('print-btn');
+      if (printBtn) {
+        printBtn.addEventListener('click', () => window.print());
+      }
+    }
+
+    /**
+     * Load filtered data from the server
+     */
+    function loadFilteredData() {
+      if (AppState.isLoading) {
+        console.log('Data loading already in progress...');
+        return;
+      }
+      
+      console.log('Loading caseload data...');
+      setLoadingState(true);
+      clearError();
+      
+      const startTime = Date.now();
+      
+      google.script.run
+        .withSuccessHandler(function(data) {
+          const loadTime = Date.now() - startTime;
+          console.log(`Data loaded successfully in ${loadTime}ms`);
+          console.log('Raw data received:', data);
+          console.log('Data type:', typeof data);
+          console.log('Data length:', data ? data.length : 'no length');
+          handleDataSuccess(data);
+        })
+        .withFailureHandler(function(error) {
+          const loadTime = Date.now() - startTime;
+          console.error(`Data loading failed after ${loadTime}ms:`, error);
+          handleDataError(error);
+        })
+        .filterCaseloadData();
+    }
+
+    /**
+     * Handle successful data loading
+     * @param {Array|string} data - Data from server
+     */
+    function handleDataSuccess(data) {
+      try {
+        console.log('Processing received data...');
+        
+        // Parse JSON if needed
+        let parsedData = data;
+        if (typeof data === 'string') {
+          try {
+            parsedData = JSON.parse(data);
+          } catch (parseError) {
+            console.error('Error parsing JSON data:', parseError);
+            handleDataError('Invalid data format received from server');
+            return;
+          }
+        }
+        
+        // Validate data structure
+        if (!Array.isArray(parsedData)) {
+          console.error('Invalid data structure - expected array');
+          handleDataError('Invalid data structure received');
+          return;
+        }
+        
+        console.log(`Received ${parsedData.length} rows of data`);
+        
+        // Update application state
+        AppState.data = parsedData;
+        AppState.filteredData = parsedData;
+        AppState.currentPage = 1;
+        AppState.searchTerm = '';
+        AppState.error = null;
+        
+        // Clear search box
+        const searchBox = document.getElementById('search-box');
+        if (searchBox) {
+          searchBox.value = '';
+        }
+        
+        // Display data
+        displayData();
+        updateDataInfo();
+        
+      } catch (error) {
+        console.error('Error processing data:', error);
+        handleDataError('Error processing received data');
+      } finally {
+        setLoadingState(false);
+      }
+    }
+
+    /**
+     * Handle data loading errors
+     * @param {string|Error} error - Error information
+     */
+    function handleDataError(error) {
+      console.error('Data error:', error);
+      
+      const errorMessage = typeof error === 'string' ? error : 
+                          (error.message || 'Unknown error occurred');
+      
+      AppState.error = errorMessage;
+      AppState.data = [];
+      AppState.filteredData = [];
+      
+      setLoadingState(false);
+      showError(errorMessage);
+      
+      // Clear the data table
+      const dataTableContainer = document.getElementById('data-table');
+      if (dataTableContainer) {
+        dataTableContainer.innerHTML = '';
+        dataTableContainer.style.display = 'none';
+      }
+    }
+
+    /**
+     * Display data in table format
+     */
+    function displayData() {
+      const dataTableContainer = document.getElementById('data-table');
+      if (!dataTableContainer) {
+        console.error('Data table container not found');
+        return;
+      }
+      
+      if (!AppState.filteredData || AppState.filteredData.length === 0) {
+        showMessage('No data available for your campus.', 'info');
+        dataTableContainer.style.display = 'none';
+        return;
+      }
+      
+      try {
+        // Calculate pagination
+        const totalRows = AppState.filteredData.length - 1; // Exclude header
+        const totalPages = Math.ceil(totalRows / AppConfig.pageSize);
+        const startIndex = (AppState.currentPage - 1) * AppConfig.pageSize + 1; // +1 to skip header
+        const endIndex = Math.min(startIndex + AppConfig.pageSize - 1, AppState.filteredData.length - 1);
+        
+        // Get data for current page
+        const headers = AppState.filteredData[0];
+        const pageData = AppState.filteredData.slice(startIndex, endIndex + 1);
+        
+        // Build table HTML
+        let tableHtml = '<table class="data-table" role="table">';
+        
+        // Add header
+        tableHtml += '<thead><tr>';
+        headers.forEach((header, index) => {
+          tableHtml += `<th scope="col">${escapeHtml(header)}</th>`;
+        });
+        tableHtml += '</tr></thead>';
+        
+        // Add body
+        tableHtml += '<tbody>';
+        pageData.forEach((row, rowIndex) => {
+          tableHtml += '<tr>';
+          row.forEach((cell, cellIndex) => {
+            const cellContent = cell !== null && cell !== undefined ? escapeHtml(cell.toString()) : '';
+            tableHtml += `<td>${cellContent}</td>`;
+          });
+          tableHtml += '</tr>';
+        });
+        tableHtml += '</tbody>';
+        
+        tableHtml += '</table>';
+        
+        // Add pagination if needed
+        if (totalPages > 1) {
+          tableHtml += buildPaginationHtml(totalPages, totalRows);
+        }
+        
+        dataTableContainer.innerHTML = tableHtml;
+        dataTableContainer.style.display = 'block';
+        dataTableContainer.classList.add('fade-in');
+        
+        // Set up pagination event listeners
+        setupPaginationListeners();
+        
+        console.log(`Displayed page ${AppState.currentPage} of ${totalPages} (${pageData.length} rows)`);
+        
+      } catch (error) {
+        console.error('Error displaying data:', error);
+        showError('Error displaying data');
+      }
+    }
+
+    /**
+     * Build pagination HTML
+     * @param {number} totalPages - Total number of pages
+     * @param {number} totalRows - Total number of data rows
+     * @returns {string} Pagination HTML
+     */
+    function buildPaginationHtml(totalPages, totalRows) {
+      const currentPage = AppState.currentPage;
+      const startRow = (currentPage - 1) * AppConfig.pageSize + 1;
+      const endRow = Math.min(startRow + AppConfig.pageSize - 1, totalRows);
+      
+      let paginationHtml = '<div class="pagination">';
+      
+      // Previous button
+      paginationHtml += `<button id="prev-page" ${currentPage <= 1 ? 'disabled' : ''}>
+        &laquo; Previous
+      </button>`;
+      
+      // Page info
+      paginationHtml += `<span class="page-info">
+        Showing ${startRow}-${endRow} of ${totalRows} records (Page ${currentPage} of ${totalPages})
+      </span>`;
+      
+      // Next button
+      paginationHtml += `<button id="next-page" ${currentPage >= totalPages ? 'disabled' : ''}>
+        Next &raquo;
+      </button>`;
+      
+      paginationHtml += '</div>';
+      
+      return paginationHtml;
+    }
+
+    /**
+     * Set up pagination event listeners
+     */
+    function setupPaginationListeners() {
+      const prevBtn = document.getElementById('prev-page');
+      const nextBtn = document.getElementById('next-page');
+      
+      if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+          if (AppState.currentPage > 1) {
+            AppState.currentPage--;
+            displayData();
+          }
+        });
+      }
+      
+      if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+          const totalRows = AppState.filteredData.length - 1;
+          const totalPages = Math.ceil(totalRows / AppConfig.pageSize);
+          if (AppState.currentPage < totalPages) {
+            AppState.currentPage++;
+            displayData();
+          }
+        });
+      }
+    }
+
+    /**
+     * Handle search input
+     * @param {Event} event - Input event
+     */
+    function handleSearch(event) {
+      const searchTerm = event.target.value.toLowerCase().trim();
+      AppState.searchTerm = searchTerm;
+      AppState.currentPage = 1; // Reset to first page
+      
+      console.log(`Searching for: "${searchTerm}"`);
+      
+      if (!searchTerm) {
+        // No search term, show all data
+        AppState.filteredData = AppState.data;
+      } else {
+        // Filter data based on search term
+        AppState.filteredData = filterData(AppState.data, searchTerm);
+      }
+      
+      displayData();
+      updateDataInfo();
+    }
+
+    /**
+     * Filter data based on search term
+     * @param {Array} data - Data to filter
+     * @param {string} searchTerm - Search term
+     * @returns {Array} Filtered data
+     */
+    function filterData(data, searchTerm) {
+      if (!data || data.length === 0) {
+        return [];
+      }
+      
+      // Always include the header row
+      const headers = data[0];
+      const filteredRows = data.slice(1).filter(row => {
+        return AppConfig.searchColumns.some(colIndex => {
+          const cellValue = row[colIndex];
+          if (cellValue === null || cellValue === undefined) {
+            return false;
+          }
+          return cellValue.toString().toLowerCase().includes(searchTerm);
+        });
+      });
+      
+      return [headers, ...filteredRows];
+    }
+
+    /**
+     * Update data information display
+     */
+    function updateDataInfo() {
+      const dataInfo = document.getElementById('data-info');
+      if (!dataInfo) return;
+      
+      const totalRows = AppState.data.length > 0 ? AppState.data.length - 1 : 0;
+      const filteredRows = AppState.filteredData.length > 0 ? AppState.filteredData.length - 1 : 0;
+      
+      let infoText = `${totalRows} total records`;
+      if (AppState.searchTerm) {
+        infoText += `, ${filteredRows} matching search`;
+      }
+      
+      dataInfo.textContent = infoText;
+    }
+
+    /**
+     * Refresh data from server
+     */
+    function refreshData() {
+      console.log('Refreshing data...');
+      clearCache();
+      loadFilteredData();
+    }
+
+    /**
+     * Clear server-side cache
+     */
+    function clearCache() {
+      google.script.run
+        .withSuccessHandler(() => console.log('Cache cleared'))
+        .withFailureHandler(error => console.warn('Failed to clear cache:', error))
+        .clearUserCache();
+    }
+
+    /**
+     * Export data to CSV
+     */
+    function exportData() {
+      if (!AppState.filteredData || AppState.filteredData.length === 0) {
+        showMessage('No data to export', 'warning');
+        return;
+      }
+      
+      try {
+        const csv = convertToCSV(AppState.filteredData);
+        const filename = `nahs-caseload-${new Date().toISOString().split('T')[0]}.csv`;
+        downloadCSV(csv, filename);
+        
+        console.log('Data exported to CSV');
+        showMessage('Data exported successfully', 'success');
+      } catch (error) {
+        console.error('Export error:', error);
+        showError('Failed to export data');
+      }
+    }
+
+    /**
+     * Convert data array to CSV format
+     * @param {Array} data - Data to convert
+     * @returns {string} CSV string
+     */
+    function convertToCSV(data) {
+      return data.map(row => 
+        row.map(cell => {
+          const cellStr = cell !== null && cell !== undefined ? cell.toString() : '';
+          // Escape quotes and wrap in quotes if contains comma, quote, or newline
+          if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+            return '"' + cellStr.replace(/"/g, '""') + '"';
+          }
+          return cellStr;
+        }).join(',')
+      ).join('\n');
+    }
+
+    /**
+     * Download CSV file
+     * @param {string} csvContent - CSV content
+     * @param {string} filename - Filename for download
+     */
+    function downloadCSV(csvContent, filename) {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      
+      if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    }
+
+    /**
+     * Set loading state
+     * @param {boolean} isLoading - Loading state
+     */
+    function setLoadingState(isLoading) {
+      AppState.isLoading = isLoading;
+      
+      const loadingContainer = document.getElementById('loading');
+      const dataTable = document.getElementById('data-table');
+      const refreshBtn = document.getElementById('refresh-btn');
+      
+      if (loadingContainer) {
+        loadingContainer.style.display = isLoading ? 'flex' : 'none';
+      }
+      
+      if (dataTable && !isLoading) {
+        dataTable.style.display = AppState.filteredData.length > 0 ? 'block' : 'none';
+      }
+      
+      if (refreshBtn) {
+        refreshBtn.disabled = isLoading;
+        refreshBtn.textContent = isLoading ? 'Loading...' : 'Refresh';
+      }
+    }
+
+    /**
+     * Show error message
+     * @param {string} message - Error message
+     */
+    function showError(message) {
+      showMessage(message, 'error');
+      console.error('Application error:', message);
+    }
+
+    /**
+     * Show message to user
+     * @param {string} message - Message text
+     * @param {string} type - Message type (error, warning, info, success)
+     */
+    function showMessage(message, type = 'info') {
+      // Remove existing messages
+      const existingMessages = document.querySelectorAll('.message');
+      existingMessages.forEach(msg => msg.remove());
+      
+      // Create new message
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${type}`;
+      messageDiv.textContent = message;
+      
+      // Insert before the loading container
+      const loadingContainer = document.getElementById('loading');
+      if (loadingContainer) {
+        loadingContainer.parentNode.insertBefore(messageDiv, loadingContainer);
+      } else {
+        document.body.insertBefore(messageDiv, document.body.firstChild);
+      }
+      
+      // Auto-remove success and info messages after 5 seconds
+      if (type === 'success' || type === 'info') {
+        setTimeout(() => {
+          if (messageDiv.parentNode) {
+            messageDiv.remove();
+          }
+        }, 5000);
+      }
+    }
+
+    /**
+     * Clear error messages
+     */
+    function clearError() {
+      const errorMessages = document.querySelectorAll('.message.error');
+      errorMessages.forEach(msg => msg.remove());
+      AppState.error = null;
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped text
+     */
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    /**
+     * Debounce function to limit API calls
+     * @param {Function} func - Function to debounce
+     * @param {number} delay - Delay in milliseconds
+     * @returns {Function} Debounced function
+     */
+    function debounce(func, delay) {
+      let timeoutId;
+      return function (...args) {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => func.apply(this, args), delay);
+      };
+    }
+
+    // Initialize the application when the page loads
+    window.addEventListener('load', initializeApp);
+
+    // Handle page visibility changes to refresh data when tab becomes visible
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden && AppState.data.length === 0) {
+        console.log('Tab became visible, checking if data needs to be loaded...');
+        loadFilteredData();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "source": {
+    "include": [
+      "./src/backend/"
+    ],
+    "includePattern": "\\.js$",
+    "exclude": [
+      "node_modules/"
+    ]
+  },
+  "opts": {
+    "destination": "./docs/",
+    "recurse": true,
+    "readme": "./README.md"
+  },
+  "plugins": [
+    "plugins/markdown"
+  ],
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  },
+  "metadata": {
+    "title": "NAHS Caseload Counts - API Documentation",
+    "version": "1.0.0"
+  }
+}
